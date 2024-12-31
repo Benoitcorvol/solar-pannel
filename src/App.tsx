@@ -15,7 +15,7 @@ function App() {
     const response = await fetch(
       `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
         address
-      )}&key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}&language=fr&region=FR`
+      )}&key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}&t language=fr&region=FR`
     );
     const data = await response.json();
 
