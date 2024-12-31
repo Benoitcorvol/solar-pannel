@@ -9,7 +9,7 @@ export interface BuildingInsights {
     latitude: number;
     longitude: number;
   };
-  boundingBox: {
+  boundingBox?: {
     sw: {
       latitude: number;
       longitude: number;
@@ -19,17 +19,17 @@ export interface BuildingInsights {
       longitude: number;
     };
   };
-  imageryDate: {
+  imageryDate?: {
     year: number;
     month: number;
     day: number;
   };
-  imageryQuality: string;
-  regionCode: string;
+  imageryQuality?: string;
+  regionCode?: string;
   solarPotential: {
     maxArrayPanelsCount: number;
     maxArrayAreaMeters2: number;
-    maxArrayAnnualEnergyKwh: number;
+    maxArrayAnnualEnergyKwh?: number;
     carbonOffsetFactorKgPerKwh: number;
     wholeRoofStats: {
       areaMeters2: number;
@@ -42,13 +42,13 @@ export interface BuildingInsights {
       stats: {
         areaMeters2: number;
         sunshineQuantiles: number[];
-        groundAreaMeters2: number;
+        groundAreaMeters2?: number;
       };
-      center: {
+      center?: {
         latitude: number;
         longitude: number;
       };
-      boundingBox: {
+      boundingBox?: {
         sw: {
           latitude: number;
           longitude: number;
@@ -58,7 +58,7 @@ export interface BuildingInsights {
           longitude: number;
         };
       };
-      planeHeightAtCenterMeters: number;
+      planeHeightAtCenterMeters?: number;
     }>;
     maxSunshineHoursPerYear: number;
     solarPanelConfigs?: Array<{
@@ -72,14 +72,14 @@ export interface BuildingInsights {
       }>;
     }>;
   };
-  roofSegments: Array<{
+  roofSegments?: Array<{
     segmentId: string;
     pitchDegrees: number;
     azimuthDegrees: number;
     stats: {
       areaMeters2: number;
       sunshineQuantiles: number[];
-      groundAreaMeters2: number;
+      groundAreaMeters2?: number;
     };
   }>;
 }
@@ -91,4 +91,37 @@ export interface SolarAnalysisResults {
   solarPanelArea: number;
   yearlyEnergyProduction: number;
   carbonOffset: number;
+  orientation?: number;
+  tilt?: number;
+  sunlightHours?: number;
+  address: string;
+}
+
+export interface SolarApiResponse {
+  buildingInsights: BuildingInsights;
+  dataLayers: {
+    rgbUrl: string;
+    dsmUrl: string;
+    annualFluxUrl: string;
+    monthlyFluxUrl: string;
+    maskUrl: string;
+  };
+  summary: {
+    maxPanels: number;
+    roofArea: number;
+    yearlyEnergyProduction: number;
+    sunlightHours: number;
+    orientation: number;
+    tilt: number;
+    carbonOffset: number;
+  };
+}
+
+// Helper type for API responses
+export interface ApiErrorResponse {
+  error: {
+    code: number;
+    message: string;
+    status: string;
+  };
 }

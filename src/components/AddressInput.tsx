@@ -30,24 +30,49 @@ export function AddressInput({ onAnalyze, isLoading }: AddressInputProps) {
   const addressInputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
 
-  // Initialiser l'autocomplétion Google Places
+  // Initialize Google Places Autocomplete
   useEffect(() => {
-    if (addressInputRef.current && window.google) {
-      autocompleteRef.current = new google.maps.places.Autocomplete(addressInputRef.current, {
-        componentRestrictions: { country: 'fr' },
-        fields: ['formatted_address'],
-        types: ['address']
-      });
+    const initAutocomplete = () => {
+      if (!addressInputRef.current || !window.google?.maps?.places) {
+        console.warn('Google Maps Places API not loaded yet');
+        return;
+      }
 
-      autocompleteRef.current.addListener('place_changed', () => {
-        const place = autocompleteRef.current?.getPlace();
-        if (place?.formatted_address) {
-          setFormData(prev => ({
-            ...prev,
-            address: place.formatted_address
-          }));
+      try {
+        autocompleteRef.current = new google.maps.places.Autocomplete(addressInputRef.current, {
+          componentRestrictions: { country: 'fr' },
+          fields: ['formatted_address', 'geometry'],
+          types: ['address']
+        });
+
+        autocompleteRef.current.addListener('place_changed', () => {
+          const place = autocompleteRef.current?.getPlace();
+          if (place?.formatted_address) {
+            setFormData(prev => ({
+              ...prev,
+              address: place.formatted_address || ''
+            }));
+          }
+        });
+      } catch (error) {
+        console.error('Error initializing Places Autocomplete:', error);
+      }
+    };
+
+    // Initialize immediately if Google Maps is already loaded
+    if (window.google?.maps?.places) {
+      initAutocomplete();
+    } else {
+      // Otherwise wait for the API to load
+      const checkGoogleMapsInterval = setInterval(() => {
+        if (window.google?.maps?.places) {
+          initAutocomplete();
+          clearInterval(checkGoogleMapsInterval);
         }
-      });
+      }, 100);
+
+      // Clean up interval
+      return () => clearInterval(checkGoogleMapsInterval);
     }
   }, []);
 
@@ -98,20 +123,19 @@ export function AddressInput({ onAnalyze, isLoading }: AddressInputProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Valider le numéro de téléphone
-    const phoneError = validatePhoneNumber(formData.phone);
-    if (phoneError) {
-      setErrors(prev => ({
-        ...prev,
-        phone: phoneError
-      }));
+    // Validate all required fields
+    if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim() || !formData.phone.trim() || !formData.address.trim()) {
       return;
     }
 
-    if (formData.address.trim()) {
-      onAnalyze(formData.address.trim());
-      console.log('Form data:', formData);
+    // Check if there are any existing errors
+    if (errors.phone) {
+      return;
     }
+
+    // Submit the form
+    onAnalyze(formData.address.trim());
+    console.log('Form data:', formData);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
