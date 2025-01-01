@@ -13,8 +13,19 @@ const loader = new Loader({
   mapIds: ['2cbff3bb7f42c667']
 });
 
-// Export a function to load Google Maps
-export const loadGoogleMaps = () => loader.load();
+// Export a function to load Google Maps with error logging
+export const loadGoogleMaps = async () => {
+  try {
+    console.log('Starting Google Maps initialization...');
+    console.log('Using API Key:', import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
+    const google = await loader.load();
+    console.log('Google Maps loaded successfully');
+    return google;
+  } catch (error) {
+    console.error('Failed to load Google Maps:', error);
+    throw error;
+  }
+};
 
 // Function to get country code from address using Google Maps Geocoding
 export async function getCountryFromAddress(address: string): Promise<string | null> {

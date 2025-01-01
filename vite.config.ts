@@ -19,14 +19,9 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api/solar': {
-        target: 'https://solar.googleapis.com',
-        changeOrigin: true,
-        rewrite: (path) => {
-          const [pathOnly, query] = path.split('?');
-          const newPath = pathOnly.replace(/^\/api\/solar/, '/v1');
-          return query ? `${newPath}?${query}` : newPath;
-        }
+      '/api': {
+        target: 'http://localhost:3002',
+        changeOrigin: true
       }
     }
   }

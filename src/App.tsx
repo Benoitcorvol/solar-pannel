@@ -149,6 +149,42 @@ function App() {
                 solarPanelArea: results.solarPanelArea,
                 buildingInsights: results.buildingInsights,
               }}
+              onCustomAreaUpdate={(area) => {
+                if (results && area !== null) {
+                  // Calculate proportional values based on area ratio
+                  const areaRatio = area / results.roofArea;
+                  
+                  setResults({
+                    ...results,
+                    solarPanelArea: area,
+                    yearlyEnergyProduction: Math.round(results.yearlyEnergyProduction * areaRatio),
+                    carbonOffset: Math.round(results.carbonOffset * areaRatio)
+                  });
+                }
+              }}
+              onTechnicalInfoUpdate={(info) => {
+                if (results) {
+                  // Update all relevant fields with the new technical information
+                  const newResults = {
+                    ...results,
+                    solarPanelArea: info.usableArea,
+                    yearlyEnergyProduction: Math.round(info.estimatedEnergy),
+                    carbonOffset: Math.round(info.estimatedEnergy * 0.5), // 0.5 kg CO2 per kWh
+                    tilt: info.avgPitch
+                  };
+                  
+                  console.log('Updating results with technical info:', {
+                    oldArea: results.solarPanelArea,
+                    newArea: info.usableArea,
+                    oldEnergy: results.yearlyEnergyProduction,
+                    newEnergy: info.estimatedEnergy,
+                    numberOfPanels: info.numberOfPanels,
+                    peakPower: info.peakPower
+                  });
+                  
+                  setResults(newResults);
+                }
+              }}
             />
             <AnalysisResults 
               results={results}

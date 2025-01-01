@@ -1,11 +1,11 @@
 import { getCountryFromAddress } from './googleMaps';
 
-const API_KEY = '6162|yZCtSWFZpEVDycpzurH62ypVxg1BkkisUgn2sz0g';
+const API_KEY = import.meta.env.VITE_ZYLA_API_KEY;
 const ELECTRICITY_API_BASE_URL = 'https://zylalabs.com/api/3040/electricity+rates+in+europe+api';
 
-// Fallback rates in €/kWh (updated 2024)
-const FALLBACK_RATES: { [key: string]: number } = {
-  'FR': 0.2170,
+// Retail electricity rates in €/kWh (updated 2024)
+const RETAIL_RATES: { [key: string]: number } = {
+  'FR': 0.34223, // Updated French rate for autoconsommation
   'DE': 0.3790,
   'ES': 0.1890,
   'IT': 0.2590,
@@ -35,7 +35,7 @@ export async function getCurrentElectricityRate(address: string): Promise<number
     
     if (!countryCode) {
       console.warn('Could not determine country from address, using fallback rate for France');
-      return FALLBACK_RATES['FR'];
+      return RETAIL_RATES['FR'];
     }
 
     // Fetch current electricity rate from API
@@ -48,41 +48,34 @@ export async function getCurrentElectricityRate(address: string): Promise<number
 
     if (!response.ok) {
       console.warn(`API error (${response.status}), using fallback rate for ${countryCode}`);
-      return FALLBACK_RATES[countryCode] || FALLBACK_RATES['FR'];
+      return RETAIL_RATES[countryCode] || RETAIL_RATES['FR'];
     }
 
     const data: ElectricityRateResponse = await response.json();
     
     if (!data.success) {
       console.warn('API request not successful, using fallback rate');
-      return FALLBACK_RATES[countryCode] || FALLBACK_RATES['FR'];
+      return RETAIL_RATES[countryCode] || RETAIL_RATES['FR'];
     }
 
-    // Convert from €/MWh to €/kWh and add typical additional costs
-    // API gives wholesale price, we need to add typical margins and taxes
-    const wholesalePriceKwh = parseFloat(data.data.price) / 1000;
-    const MARGIN_MULTIPLIER = 3.5; // Typical retail margin, grid costs, taxes
-    const rateInKwh = wholesalePriceKwh * MARGIN_MULTIPLIER;
+    // Instead of using wholesale prices, return the known retail rate
+    // This is more accurate as wholesale prices don't reliably predict retail rates
+    const rateInKwh = RETAIL_RATES[countryCode] || RETAIL_RATES['FR'];
     
-    console.log('API Rate details:', {
-      wholesale_mwh: data.data.price,
-      wholesale_kwh: wholesalePriceKwh,
-      retail_kwh: rateInKwh,
-      unit: data.data.unit
+    // Log the rates
+    console.log('Rate details:', {
+      country: countryCode,
+      wholesale_price: `${data.data.price} ${data.data.unit}`,
+      retail_rate: `${rateInKwh} €/kWh`,
+      rate_type: 'Autoconsommation'
     });
-    
-    // Validate final retail rate is reasonable (between 0.10 and 0.50 €/kWh)
-    if (rateInKwh < 0.10 || rateInKwh > 0.50) {
-      console.warn('Calculated retail rate outside expected range, using fallback rate');
-      return FALLBACK_RATES[countryCode] || FALLBACK_RATES['FR'];
-    }
 
     return rateInKwh;
 
   } catch (error) {
     console.error('Error fetching electricity rate:', error);
     // Use fallback rate for the country (if we got it) or default to France
-    return countryCode ? FALLBACK_RATES[countryCode] : FALLBACK_RATES['FR'];
+    return countryCode ? RETAIL_RATES[countryCode] : RETAIL_RATES['FR'];
   }
 }
 
