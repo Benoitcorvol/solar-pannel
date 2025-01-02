@@ -260,23 +260,60 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
     setIsDrawingHole(true);
   };
 
-  const completeHole = () => {
-    if (currentHoleRef.current.length < 3) return;
+  const completeHole = async () => {
+    console.log('\n=== DÉBUT COMPLETION DU TROU ===');
     
-    // Ensure the hole is properly closed
-    if (!isLatLngEqual(currentHoleRef.current[0], currentHoleRef.current[currentHoleRef.current.length - 1])) {
-      currentHoleRef.current.push(currentHoleRef.current[0]);
+    if (currentHoleRef.current.length < 3) {
+      console.log('Pas assez de points pour former un trou');
+      return;
     }
     
-    // Add the hole and its markers to their respective collections
-    holesRef.current.push([...currentHoleRef.current]);
-    holeMarkersRef.current.push([...currentHoleMarkersRef.current]);
-    
-    // Reset current hole state
-    currentHoleRef.current = [];
-    currentHoleMarkersRef.current = [];
-    setIsDrawingHole(false);
-    updatePolygon();
+    try {
+      // Ensure the hole is properly closed
+      if (!isLatLngEqual(currentHoleRef.current[0], currentHoleRef.current[currentHoleRef.current.length - 1])) {
+        console.log('Fermeture automatique du trou');
+        currentHoleRef.current.push(currentHoleRef.current[0]);
+      }
+
+      // Calculate hole area before adding it
+      const holeCoords = currentHoleRef.current.map(point => [point.lng(), point.lat()]);
+      const holePolygon = turf.polygon([holeCoords]);
+      const holeArea = turf.area(holePolygon);
+      console.log('Surface de la zone exclue:', holeArea.toFixed(1), 'm²');
+      
+      // Add the hole and its markers to their respective collections
+      holesRef.current.push([...currentHoleRef.current]);
+      holeMarkersRef.current.push([...currentHoleMarkersRef.current]);
+      console.log('Nombre total de zones exclues:', holesRef.current.length);
+      
+      // Calculate total excluded area
+      let totalExcludedArea = 0;
+      holesRef.current.forEach((hole, index) => {
+        const coords = hole.map(point => [point.lng(), point.lat()]);
+        const polygon = turf.polygon([coords]);
+        const area = turf.area(polygon);
+        totalExcludedArea += area;
+        console.log(`Zone exclue ${index + 1}: ${area.toFixed(1)} m²`);
+      });
+      console.log('Surface totale exclue:', totalExcludedArea.toFixed(1), 'm²');
+      
+      // Reset current hole state
+      currentHoleRef.current = [];
+      currentHoleMarkersRef.current = [];
+      setIsDrawingHole(false);
+
+      // Update polygon with new hole
+      console.log('Mise à jour du polygone avec la nouvelle zone exclue...');
+      updatePolygon();
+
+      // Recalculate all metrics with the new excluded area
+      console.log('Recalcul des métriques avec la zone exclue...');
+      await updateTotalMetrics();
+      
+      console.log('=== FIN COMPLETION DU TROU ===\n');
+    } catch (error) {
+      console.error('Erreur lors de la completion du trou:', error);
+    }
   };
 
   // Calculate yearly energy production
@@ -958,7 +995,7 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
 
       holesRef.current.forEach(hole => {
         const holePath = [...hole];
-        if (holePath.length > 0 && !isLatLngEqual(holePath[0], holePath[holePath.length - 1])) {
+        if (holePath.length > 0 && !isLatLngEqual(hole[0], hole[hole.length - 1])) {
           holePath.push(holePath[0]);
         }
 
@@ -978,41 +1015,111 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
         holePolygonsRef.current.push(holePolygon);
       });
 
-      // Calculate areas only if we have a valid polygon
+      // Calculate main polygon area
+      let mainArea = 0;
       if (drawnPointsRef.current.length >= 3) {
         const mainCoords = drawnPointsRef.current.map(point => [point.lng(), point.lat()]);
         if (!isLatLngEqual(drawnPointsRef.current[0], drawnPointsRef.current[drawnPointsRef.current.length - 1])) {
           mainCoords.push([drawnPointsRef.current[0].lng(), drawnPointsRef.current[0].lat()]);
         }
-        
         const mainPolygon = turf.polygon([mainCoords]);
-        const totalArea = turf.area(mainPolygon);
-
-        // Calculate holes area
-        let excludedArea = 0;
-        holesRef.current.forEach(hole => {
-          if (hole.length >= 3) {
-            const holeCoords = hole.map(point => [point.lng(), point.lat()]);
-            if (!isLatLngEqual(hole[0], hole[hole.length - 1])) {
-              holeCoords.push([hole[0].lng(), hole[0].lat()]);
-            }
-            const holePolygon = turf.polygon([holeCoords]);
-            excludedArea += turf.area(holePolygon);
-          }
-        });
-
-        // Update interface with final area
-        const finalArea = totalArea - excludedArea;
-        const segments = buildingData?.buildingInsights?.solarPotential?.roofSegmentStats || [];
-        const avgPitch = segments.length > 0 ? segments[0].pitchDegrees : 0;
-        
-        // Update technical analysis
-        updateTechnicalAnalysis(finalArea, avgPitch);
-
-        // Calculate perimeter
-        const perimeter = turf.length(mainPolygon, { units: 'meters' });
-        setTotalPerimeter(perimeter);
+        mainArea = turf.area(mainPolygon);
+        console.log('Surface principale:', mainArea.toFixed(1), 'm²');
       }
+
+      // Calculate holes area
+      let excludedArea = 0;
+      holesRef.current.forEach((hole, index) => {
+        if (hole.length >= 3) {
+          const holeCoords = hole.map(point => [point.lng(), point.lat()]);
+          if (!isLatLngEqual(hole[0], hole[hole.length - 1])) {
+            holeCoords.push([hole[0].lng(), hole[0].lat()]);
+          }
+          const holePolygon = turf.polygon([holeCoords]);
+          const holeArea = turf.area(holePolygon);
+          excludedArea += holeArea;
+          console.log(`Surface zone exclue ${index + 1}:`, holeArea.toFixed(1), 'm²');
+        }
+      });
+
+      // Calculate final area
+      const finalArea = Math.max(0, mainArea - excludedArea);
+      console.log('Surface finale après exclusions:', finalArea.toFixed(1), 'm²');
+
+      // Get roof segment data
+      const segments = buildingData?.buildingInsights?.solarPotential?.roofSegmentStats || [];
+      const avgPitch = segments.length > 0 ? segments[0].pitchDegrees : 0;
+
+      // Update polygons state with new area
+      if (drawnPointsRef.current.length >= 3) {
+        setPolygons(prev => {
+          const newPolygons = [...prev];
+          if (newPolygons.length > 0) {
+            newPolygons[newPolygons.length - 1] = {
+              ...newPolygons[newPolygons.length - 1],
+              area: finalArea,
+              pitch: avgPitch
+            };
+          }
+          return newPolygons;
+        });
+      }
+
+      // Update technical analysis with new area
+      if (finalArea > 0) {
+        const solarPotential = buildingData?.buildingInsights?.solarPotential;
+        if (solarPotential) {
+          // Calculate panel metrics
+          const usableArea = finalArea * 0.9; // 90% utilization
+          const panelArea = 1.7 * 1.0; // m² per panel
+          const numberOfPanels = Math.floor(usableArea / panelArea);
+          const peakPower = numberOfPanels * 0.4; // 400W per panel
+
+          // Calculate energy production
+          const maxEnergy = solarPotential.maxArrayAnnualEnergyKwh;
+          const areaRatio = finalArea / solarPotential.maxArrayAreaMeters2;
+          const sunshineHours = solarPotential.maxSunshineHoursPerYear;
+          const efficiencyFactor = 0.97;
+
+          const estimatedEnergy = Math.min(
+            maxEnergy * areaRatio,
+            peakPower * sunshineHours * efficiencyFactor
+          );
+
+          // Update interface
+          if (onCustomAreaUpdate) {
+            onCustomAreaUpdate(finalArea);
+          }
+
+          // Create technical info update
+          const updateInfo = {
+            area: finalArea,
+            usableArea: usableArea,
+            numberOfPanels: numberOfPanels,
+            peakPower: peakPower,
+            estimatedEnergy: estimatedEnergy,
+            avgPitch: avgPitch,
+            reventeInfo: {
+              revenus: 0,
+              revenusNets: 0,
+              roi: 0
+            },
+            autoconsoInfo: {
+              revenus: 0,
+              revenusNets: 0,
+              roi: 0
+            },
+            installationCost: peakPower * 1500,
+            maintenanceCost: peakPower * 20
+          };
+
+          // Update parent component
+          if (onTechnicalInfoUpdate) {
+            onTechnicalInfoUpdate(updateInfo);
+          }
+        }
+      }
+
     } catch (error) {
       console.error('Erreur dans updatePolygon:', error);
     }
@@ -1067,88 +1174,181 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
         return;
       }
 
-      // Calculate total area from polygons
-      let totalArea = 0;
-      let weightedPitch = 0;
+      // Calculate total area from main polygon or use API data
+      let mainArea = 0;
+      let isUsingApiArea = false;
 
-      // Calculate total area from all polygons
-      if (polygons.length > 0) {
-        polygons.forEach(p => {
-          if (p && p.area > 0) {
-            console.log('Adding polygon area:', p.area.toFixed(1), 'm²');
-            totalArea += p.area;
-            weightedPitch += p.pitch * p.area;
-          }
-        });
-        console.log('Total area from polygons:', totalArea.toFixed(1), 'm²');
+      if (drawnPointsRef.current.length >= 3) {
+        const mainCoords = drawnPointsRef.current.map(point => [point.lng(), point.lat()]);
+        if (!isLatLngEqual(drawnPointsRef.current[0], drawnPointsRef.current[drawnPointsRef.current.length - 1])) {
+          mainCoords.push([drawnPointsRef.current[0].lng(), drawnPointsRef.current[0].lat()]);
+        }
+        const mainPolygon = turf.polygon([mainCoords]);
+        mainArea = turf.area(mainPolygon);
+        console.log('Surface dessinée:', mainArea.toFixed(1), 'm²');
       } else {
-        // If no polygons drawn, use building data
-        totalArea = solarPotential.maxArrayAreaMeters2;
-        weightedPitch = solarPotential.roofSegmentStats[0].pitchDegrees * totalArea;
-        console.log('Using building data - Area:', totalArea.toFixed(1), 'm²');
+        mainArea = solarPotential.maxArrayAreaMeters2;
+        isUsingApiArea = true;
+        console.log('Utilisation des données API - Surface maximale:', mainArea.toFixed(1), 'm²');
       }
 
-      // Calculate averages
-      const avgPitch = totalArea > 0 ? weightedPitch / totalArea : 0;
-      console.log('Average pitch:', avgPitch.toFixed(1), '°');
+      // Calculate total excluded area
+      let excludedArea = 0;
+      holesRef.current.forEach((hole, index) => {
+        const coords = hole.map(point => [point.lng(), point.lat()]);
+        const polygon = turf.polygon([coords]);
+        const area = turf.area(polygon);
+        excludedArea += area;
+        console.log(`Zone exclue ${index + 1}: ${area.toFixed(1)} m²`);
+      });
+      console.log('Surface totale exclue:', excludedArea.toFixed(1), 'm²');
+
+      // Calculate final area
+      const totalArea = Math.max(0, mainArea - excludedArea);
+      console.log('Surface finale après exclusions:', totalArea.toFixed(1), 'm²');
+
+      // Get roof segment data
+      const segments = solarPotential.roofSegmentStats;
+      
+      // Calculate weighted average pitch and azimuth based on segment areas
+      const totalSegmentArea = segments.reduce((sum, seg) => sum + seg.stats.areaMeters2, 0);
+      const avgPitch = segments.reduce((sum, seg) => sum + (seg.pitchDegrees * seg.stats.areaMeters2), 0) / totalSegmentArea;
+      const avgAzimuth = segments.reduce((sum, seg) => sum + (seg.azimuthDegrees * seg.stats.areaMeters2), 0) / totalSegmentArea;
+      
+      console.log('Inclinaison moyenne:', avgPitch.toFixed(1), '°');
+      console.log('Orientation moyenne:', avgAzimuth.toFixed(1), '°');
 
       // Calculate panel metrics
-      const usableArea = Math.max(0, totalArea * 0.9); // 90% utilization
+      const usableArea = totalArea * 0.9; // 90% utilization
       const panelArea = 1.7 * 1.0; // m² per panel
-      const numberOfPanels = Math.max(0, Math.floor(usableArea / panelArea));
-      const peakPower = Math.max(0, numberOfPanels * 0.4); // 400W per panel
+      const numberOfPanels = Math.floor(usableArea / panelArea);
+      const peakPower = numberOfPanels * 0.45; // 450W per panel
+      
+      console.log('Métriques panneaux:');
+      console.log('- Surface utilisable:', usableArea.toFixed(1), 'm²');
+      console.log('- Nombre de panneaux:', numberOfPanels);
+      console.log('- Puissance crête:', peakPower.toFixed(1), 'kWc');
+
+      // Calculate efficiency factors
+      const optimalAzimuth = 180; // South facing
+      const optimalPitch = 35; // Optimal pitch for France
+      
+      // Calculate orientation loss (azimuth)
+      const azimuthDiff = Math.abs(avgAzimuth - optimalAzimuth);
+      const orientationLoss = Math.cos(azimuthDiff * Math.PI / 180);
+      
+      // Calculate pitch loss
+      const pitchDiff = Math.abs(avgPitch - optimalPitch);
+      const pitchLoss = Math.cos(pitchDiff * Math.PI / 180);
+      
+      // System losses breakdown
+      const inverterLoss = 0.035; // 3.5%
+      const wiringLoss = 0.02; // 2%
+      const soilingLoss = 0.03; // 3%
+      const temperatureLoss = 0.045; // 4.5%
+      const mismatchLoss = 0.02; // 2%
+      
+      const systemLosses = 1 - (inverterLoss + wiringLoss + soilingLoss + temperatureLoss + mismatchLoss);
+      const totalEfficiency = orientationLoss * pitchLoss * systemLosses;
+
+      console.log('Facteurs de performance:');
+      console.log('- Perte orientation:', ((1 - orientationLoss) * 100).toFixed(1), '%');
+      console.log('- Perte inclinaison:', ((1 - pitchLoss) * 100).toFixed(1), '%');
+      console.log('- Pertes système:', ((1 - systemLosses) * 100).toFixed(1), '%');
+      console.log('  • Onduleur:', (inverterLoss * 100).toFixed(1), '%');
+      console.log('  • Câblage:', (wiringLoss * 100).toFixed(1), '%');
+      console.log('  • Salissures:', (soilingLoss * 100).toFixed(1), '%');
+      console.log('  • Température:', (temperatureLoss * 100).toFixed(1), '%');
+      console.log('  • Mismatch:', (mismatchLoss * 100).toFixed(1), '%');
+      console.log('- Efficacité totale:', (totalEfficiency * 100).toFixed(1), '%');
 
       // Calculate energy production
-      const maxEnergy = solarPotential.maxArrayAnnualEnergyKwh || 0;
-      const areaRatio = totalArea / solarPotential.maxArrayAreaMeters2;
-      const estimatedEnergy = Math.max(0, maxEnergy * areaRatio);
-      
+      const baseYearlyProduction = 1350; // kWh/kWc/year in optimal conditions
+      let estimatedEnergy;
+
+      if (isUsingApiArea && solarPotential.maxArrayAnnualEnergyKwh) {
+        // If using API area, use API energy value adjusted by efficiency
+        estimatedEnergy = solarPotential.maxArrayAnnualEnergyKwh * totalEfficiency;
+        console.log('Utilisation de l\'énergie API avec efficacité');
+      } else {
+        // Calculate based on area and power
+        const energyFromPower = peakPower * baseYearlyProduction * totalEfficiency;
+        const areaRatio = totalArea / solarPotential.maxArrayAreaMeters2;
+        const energyFromArea = (solarPotential.maxArrayAnnualEnergyKwh || 0) * areaRatio * totalEfficiency;
+        
+        // Take the most conservative estimate
+        estimatedEnergy = Math.min(
+          energyFromPower,
+          energyFromArea > 0 ? energyFromArea : energyFromPower
+        );
+
+        console.log('Calcul de l\'énergie:');
+        console.log('- Basé sur la puissance:', energyFromPower.toFixed(0), 'kWh/an');
+        console.log('- Basé sur la surface:', energyFromArea.toFixed(0), 'kWh/an');
+        console.log('- Valeur retenue:', estimatedEnergy.toFixed(0), 'kWh/an');
+      }
+
       // Calculate energy metrics
       const energyPerSquareMeter = totalArea > 0 ? estimatedEnergy / totalArea : 0;
       const energyPerPanel = numberOfPanels > 0 ? estimatedEnergy / numberOfPanels : 0;
       const monthlyEnergy = estimatedEnergy / 12;
 
-      console.log('Calculated metrics:');
-      console.log('- Usable area:', usableArea.toFixed(1), 'm²');
-      console.log('- Number of panels:', numberOfPanels);
-      console.log('- Peak power:', peakPower.toFixed(1), 'kWc');
-      console.log('- Area ratio:', areaRatio.toFixed(2));
-      console.log('- Max energy:', maxEnergy.toFixed(0), 'kWh/year');
-      console.log('- Estimated energy:', estimatedEnergy.toFixed(0), 'kWh/year');
-      console.log('- Energy per m²:', energyPerSquareMeter.toFixed(0), 'kWh/m²/year');
-      console.log('- Energy per panel:', energyPerPanel.toFixed(0), 'kWh/panel/year');
-      console.log('- Monthly energy:', monthlyEnergy.toFixed(0), 'kWh/month');
+      console.log('Production énergétique:');
+      console.log('- Énergie estimée:', estimatedEnergy.toFixed(0), 'kWh/an');
+      console.log('- Production par m²:', energyPerSquareMeter.toFixed(0), 'kWh/m²/an');
+      console.log('- Production par panneau:', energyPerPanel.toFixed(0), 'kWh/panneau/an');
+      console.log('- Production mensuelle:', monthlyEnergy.toFixed(0), 'kWh/mois');
 
-      // Get current electricity price
+      // Get current electricity price from API
       const electricityPrice = await getLatestElectricityPrice();
-      console.log('Current electricity price:', electricityPrice, '€/kWh');
+      console.log('Prix actuel électricité:', electricityPrice.toFixed(3), '€/kWh');
 
       // Calculate financial metrics
       const installationCostPerKw = 1500; // €/kWc
-      const maintenanceCostPerYear = Math.max(0, peakPower * 20); // €/an
-      const installationCost = Math.max(0, peakPower * installationCostPerKw);
+      const maintenanceCostPerYear = peakPower * 20; // €/an
+      const installationCost = peakPower * installationCostPerKw;
       const aideTaux = 0.15; // 15% d'aide
       const aideAmount = installationCost * aideTaux;
       const finalCost = installationCost - aideAmount;
 
       // Scénario revente totale
-      const prixRevente = Math.max(0, electricityPrice * 0.60); // 60% du prix de gros
-      const revenusRevente = Math.max(0, estimatedEnergy * prixRevente);
-      const revenusNetsRevente = Math.max(0, revenusRevente - maintenanceCostPerYear);
-      const roiRevente = revenusNetsRevente > 0 ? Math.max(0, finalCost / revenusNetsRevente) : 0;
+      const prixRevente = electricityPrice * 0.60; // 60% du prix de gros
+      const revenusRevente = estimatedEnergy * prixRevente;
+      const revenusNetsRevente = revenusRevente - maintenanceCostPerYear;
+      const roiRevente = revenusNetsRevente > 0 ? finalCost / revenusNetsRevente : 0;
 
       // Scénario autoconsommation totale
-      const prixAutoconso = 0.34223; // Prix de détail
-      const revenusAutoconsommation = Math.max(0, estimatedEnergy * prixAutoconso);
-      const revenusNetsAutoconsommation = Math.max(0, revenusAutoconsommation - maintenanceCostPerYear);
-      const roiAutoconsommation = revenusNetsAutoconsommation > 0 ? Math.max(0, finalCost / revenusNetsAutoconsommation) : 0;
+      const revenusAutoconsommation = estimatedEnergy * electricityPrice;
+      const revenusNetsAutoconsommation = revenusAutoconsommation - maintenanceCostPerYear;
+      const roiAutoconsommation = revenusNetsAutoconsommation > 0 ? finalCost / revenusNetsAutoconsommation : 0;
 
       // Calculate CO2 impact
       const co2Factor = solarPotential.carbonOffsetFactorKgPerKwh / 1000; // Convert to kg/kWh
       const co2Savings = estimatedEnergy * co2Factor;
 
       // Calculate benefice net sur 25 ans
-      const beneficeNet25ans = Math.max(0, (revenusNetsAutoconsommation * 25) - finalCost);
+      const beneficeNet25ans = (revenusNetsAutoconsommation * 25) - finalCost;
+
+      console.log('\n=== RÉSULTATS FINANCIERS ===');
+      console.log('Production annuelle:', estimatedEnergy.toFixed(0), 'kWh/an');
+      console.log('\nScénario 1 : Revente totale');
+      console.log('Prix de revente:', prixRevente.toFixed(3), '€/kWh');
+      console.log('Revenus bruts:', revenusRevente.toFixed(0), '€/an');
+      console.log('Revenus nets:', revenusNetsRevente.toFixed(0), '€/an');
+      console.log('Retour sur investissement:', roiRevente.toFixed(1), 'ans');
+      console.log('\nScénario 2 : Autoconsommation totale');
+      console.log('Prix autoconsommation:', electricityPrice.toFixed(3), '€/kWh');
+      console.log('Revenus bruts:', revenusAutoconsommation.toFixed(0), '€/an');
+      console.log('Revenus nets:', revenusNetsAutoconsommation.toFixed(0), '€/an');
+      console.log('Retour sur investissement:', roiAutoconsommation.toFixed(1), 'ans');
+      console.log('\nCoûts');
+      console.log('Installation avant aides:', installationCost.toFixed(0), '€');
+      console.log('Aides:', aideAmount.toFixed(0), '€');
+      console.log('Coût final:', finalCost.toFixed(0), '€');
+      console.log('Maintenance:', maintenanceCostPerYear.toFixed(0), '€/an');
+      console.log('Bénéfice net sur 25 ans:', beneficeNet25ans.toFixed(0), '€');
+      console.log('\nImpact environnemental');
+      console.log('CO2 évité:', co2Savings.toFixed(0), 'kg/an');
 
       // Create update object
       const updateInfo = {
@@ -1161,6 +1361,7 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
         energyPerPanel: energyPerPanel,
         monthlyEnergy: monthlyEnergy,
         avgPitch: avgPitch,
+        avgAzimuth: avgAzimuth,
         reventeInfo: {
           revenus: revenusRevente,
           revenusNets: revenusNetsRevente,
@@ -1176,7 +1377,13 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
         finalCost: finalCost,
         maintenanceCost: maintenanceCostPerYear,
         beneficeNet25ans: beneficeNet25ans,
-        co2Savings: co2Savings
+        co2Savings: co2Savings,
+        systemEfficiency: {
+          orientationLoss: 1 - orientationLoss,
+          pitchLoss: 1 - pitchLoss,
+          systemLosses: 1 - systemLosses,
+          totalEfficiency: totalEfficiency
+        }
       };
 
       // Update parent component
@@ -1191,29 +1398,6 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
         console.log('Custom area updated:', totalArea);
       }
 
-      // Update local state
-      setTechnicalInfo(updateInfo);
-
-      console.log('\n=== RÉSULTATS FINANCIERS ===');
-      console.log('Production annuelle:', estimatedEnergy.toFixed(0), 'kWh/an');
-      console.log('\nScénario 1 : Revente totale');
-      console.log('Prix de revente:', prixRevente.toFixed(3), '€/kWh');
-      console.log('Revenus bruts:', revenusRevente.toFixed(0), '€/an');
-      console.log('Revenus nets:', revenusNetsRevente.toFixed(0), '€/an');
-      console.log('Retour sur investissement:', roiRevente.toFixed(1), 'ans');
-      console.log('\nScénario 2 : Autoconsommation totale');
-      console.log('Prix autoconsommation:', prixAutoconso, '€/kWh');
-      console.log('Revenus bruts:', revenusAutoconsommation.toFixed(0), '€/an');
-      console.log('Revenus nets:', revenusNetsAutoconsommation.toFixed(0), '€/an');
-      console.log('Retour sur investissement:', roiAutoconsommation.toFixed(1), 'ans');
-      console.log('\nCoûts');
-      console.log('Installation avant aides:', installationCost.toFixed(0), '€');
-      console.log('Aides:', aideAmount.toFixed(0), '€');
-      console.log('Coût final:', finalCost.toFixed(0), '€');
-      console.log('Maintenance:', maintenanceCostPerYear.toFixed(0), '€/an');
-      console.log('Bénéfice net sur 25 ans:', beneficeNet25ans.toFixed(0), '€');
-      console.log('\nImpact environnemental');
-      console.log('CO2 évité:', co2Savings.toFixed(0), 'kg/an');
       console.log('=== FIN DE LA MISE À JOUR DES MÉTRIQUES ===\n');
     } catch (error) {
       console.error('Erreur dans updateTotalMetrics:', error);

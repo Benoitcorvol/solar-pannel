@@ -1,10 +1,10 @@
 import { getCountryFromAddress } from './googleMaps';
+import { isWordPressEnv, getApiUrl, config } from './config';
 
 const API_KEY = import.meta.env.VITE_ZYLA_API_KEY;
-const ELECTRICITY_API_BASE_URL = 'https://zylalabs.com/api/3040/electricity+rates+in+europe+api';
 
-// Retail electricity rates in €/kWh (updated 2024)
-const RETAIL_RATES: { [key: string]: number } = {
+// Fallback retail electricity rates in €/kWh (updated 2024)
+const FALLBACK_RATES: { [key: string]: number } = {
   'FR': 0.34223, // Updated French rate for autoconsommation
   'DE': 0.3790,
   'ES': 0.1890,
@@ -15,67 +15,79 @@ const RETAIL_RATES: { [key: string]: number } = {
 };
 
 interface ElectricityRateResponse {
-  success: boolean;
-  status: number;
-  data: {
-    date: string;
-    region: string;
-    country: string;
-    price: string;
-    unit: string;
-  };
+  price: number;
+  timestamp?: string;
 }
 
 export async function getCurrentElectricityRate(address: string): Promise<number> {
-  let countryCode: string | null = null;
-  
   try {
     // Get country code from address using Google Maps Geocoding
-    countryCode = await getCountryFromAddress(address);
+    const countryCode = await getCountryFromAddress(address);
     
     if (!countryCode) {
       console.warn('Could not determine country from address, using fallback rate for France');
-      return RETAIL_RATES['FR'];
+      return FALLBACK_RATES['FR'];
     }
 
-    // Fetch current electricity rate from API
-    const response = await fetch(`${ELECTRICITY_API_BASE_URL}/3214/latest?region=${countryCode}`, {
-      headers: {
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
+    if (isWordPressEnv) {
+      // Use WordPress REST API
+      const response = await fetch(getApiUrl(`electricity-price?country=${countryCode}`), {
+        headers: {
+          'X-WP-Nonce': config.nonce || ''
+        }
+      });
+
+      if (!response.ok) {
+        console.warn(`API error (${response.status}), using fallback rate for ${countryCode}`);
+        return FALLBACK_RATES[countryCode] || FALLBACK_RATES['FR'];
       }
-    });
 
-    if (!response.ok) {
-      console.warn(`API error (${response.status}), using fallback rate for ${countryCode}`);
-      return RETAIL_RATES[countryCode] || RETAIL_RATES['FR'];
+      const data: ElectricityRateResponse = await response.json();
+      return data.price;
+    } else {
+      // In development, call Zyla API directly
+      const response = await fetch(`https://zylalabs.com/api/3040/electricity+rates+in+europe+api/3214/latest?region=${countryCode}`, {
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${API_KEY}`
+        }
+      });
+
+      if (!response.ok) {
+        console.warn(`API error (${response.status}), using fallback rate for ${countryCode}`);
+        return FALLBACK_RATES[countryCode] || FALLBACK_RATES['FR'];
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        console.warn('API request not successful, using fallback rate');
+        return FALLBACK_RATES[countryCode] || FALLBACK_RATES['FR'];
+      }
+
+      // Use retail rate instead of wholesale price
+      const rateInKwh = FALLBACK_RATES[countryCode] || FALLBACK_RATES['FR'];
+      
+      // Log the rates
+      console.log('Rate details:', {
+        country: countryCode,
+        wholesale_price: `${data.data.price} ${data.data.unit}`,
+        retail_rate: `${rateInKwh} €/kWh`,
+        rate_type: 'Autoconsommation'
+      });
+
+      return rateInKwh;
     }
-
-    const data: ElectricityRateResponse = await response.json();
-    
-    if (!data.success) {
-      console.warn('API request not successful, using fallback rate');
-      return RETAIL_RATES[countryCode] || RETAIL_RATES['FR'];
-    }
-
-    // Instead of using wholesale prices, return the known retail rate
-    // This is more accurate as wholesale prices don't reliably predict retail rates
-    const rateInKwh = RETAIL_RATES[countryCode] || RETAIL_RATES['FR'];
-    
-    // Log the rates
-    console.log('Rate details:', {
-      country: countryCode,
-      wholesale_price: `${data.data.price} ${data.data.unit}`,
-      retail_rate: `${rateInKwh} €/kWh`,
-      rate_type: 'Autoconsommation'
-    });
-
-    return rateInKwh;
-
   } catch (error) {
     console.error('Error fetching electricity rate:', error);
-    // Use fallback rate for the country (if we got it) or default to France
-    return countryCode ? RETAIL_RATES[countryCode] : RETAIL_RATES['FR'];
+    try {
+      // Try to get country code again in case the error was from the API calls
+      const countryCode = await getCountryFromAddress(address);
+      return countryCode ? FALLBACK_RATES[countryCode] : FALLBACK_RATES['FR'];
+    } catch {
+      // If everything fails, return French rate
+      return FALLBACK_RATES['FR'];
+    }
   }
 }
 
