@@ -1,45 +1,37 @@
 <?php
-// If uninstall is not called from WordPress, exit
+// If uninstall not called from WordPress, exit
 if (!defined('WP_UNINSTALL_PLUGIN')) {
     exit;
 }
 
-// Clean up plugin data
-$upload_dir = wp_upload_dir();
-$plugin_upload_dir = $upload_dir['basedir'] . '/solar-panel-analysis';
+// Call the uninstall function from the main plugin file
+require_once plugin_dir_path(__FILE__) . 'solar-panel-analysis.php';
+solar_panel_analysis_uninstall();
 
-// Remove plugin upload directory and its contents
-if (is_dir($plugin_upload_dir)) {
-    $files = glob($plugin_upload_dir . '/*');
-    foreach ($files as $file) {
-        if (is_file($file)) {
-            unlink($file);
-        }
-    }
-    rmdir($plugin_upload_dir);
+// Remove custom post type and its data
+global $wpdb;
+$wpdb->query("DELETE FROM {$wpdb->posts} WHERE post_type = 'solar_analysis'");
+$wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE post_id NOT IN (SELECT id FROM {$wpdb->posts})");
+
+// Clear any transients and cached data
+delete_transient('solar_panel_analysis_cache');
+wp_cache_flush();
+
+// Remove capabilities
+$role = get_role('administrator');
+if ($role) {
+    $role->remove_cap('edit_solar_analysis');
+    $role->remove_cap('delete_solar_analysis');
+    $role->remove_cap('publish_solar_analysis');
+    $role->remove_cap('edit_solar_analyses');
+    $role->remove_cap('edit_others_solar_analyses');
+    $role->remove_cap('delete_solar_analyses');
+    $role->remove_cap('publish_solar_analyses');
+    $role->remove_cap('read_private_solar_analyses');
 }
 
-// Remove plugin options
-delete_option('solar_panel_analysis_settings');
+// Clean up options
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE 'solar_panel_analysis_%'");
 
-<?php
-// If uninstall is not called from WordPress, exit
-if (!defined('WP_UNINSTALL_PLUGIN')) {
-    exit;
-}
-
-// Clean up plugin data
-$upload_dir = wp_upload_dir();
-$plugin_upload_dir = $upload_dir['basedir'] . '/solar-panel-analysis';
-
-// Remove plugin upload directory and its contents
-if (file_exists($plugin_upload_dir)) {
-    require_once(ABSPATH . 'wp-admin/includes/class-wp-filesystem-base.php');
-    require_once(ABSPATH . 'wp-admin/includes/class-wp-filesystem-direct.php');
-    
-    $filesystem = new WP_Filesystem_Direct(null);
-    $filesystem->rmdir($plugin_upload_dir, true);
-}
-
-// Remove any plugin options from the database
-delete_option('solar_panel_analysis_settings');
+// Flush rewrite rules
+flush_rewrite_rules();

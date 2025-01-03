@@ -1,73 +1,80 @@
 # Solar Panel Analysis WordPress Plugin
 
-This plugin integrates a solar panel analysis tool into WordPress using the Google Maps Solar API.
-
-## Installation
-
-1. Upload the `solar-panel-analysis` folder to the `/wp-content/plugins/` directory
-2. Activate the plugin through the 'Plugins' menu in WordPress
-3. Place the shortcode `[solar_panel_analysis]` in any page or post where you want the solar analysis tool to appear
-
-## Usage
-
-Simply add the shortcode `[solar_panel_analysis]` to any page or post. The solar analysis tool will appear as an embedded iframe.
-
-### Example Usage in Posts/Pages
-
-```
-[solar_panel_analysis]
-```
-
-### Example Usage in PHP Templates
-
-```php
-<?php echo do_shortcode('[solar_panel_analysis]'); ?>
-```
+A secure WordPress plugin for analyzing solar potential using various APIs including Google Maps Solar API, Electricity Rates API, and Monday.com integration.
 
 ## Configuration
 
-1. Make sure your WordPress site is using HTTPS
-2. Set up your Google Maps API key in the React application's .env file:
-   ```
-   VITE_GOOGLE_MAPS_API_KEY=your_api_key_here
-   ```
-3. Build the React application:
-   ```bash
-   npm run build
-   ```
-4. Copy the contents of the `dist` directory to the `app` directory in this plugin
+### API Keys and Credentials
 
-## Security Features
+For security, it's recommended to define your API keys and credentials in your `wp-config.php` file:
 
-The plugin implements several security measures:
-- Content Security Policy (CSP) headers to prevent unauthorized iframe embedding
-- Sandbox attributes for the iframe to limit functionality
-- Origin validation for postMessage communication
-- XSS protection through WordPress's built-in security functions
-- HTTPS requirement for secure communication
+```php
+// Google Maps API Key (required)
+define('SOLAR_PANEL_ANALYSIS_GOOGLE_MAPS_KEY', 'your-google-maps-key');
 
-## Requirements
+// Electricity Rates API Key
+define('SOLAR_PANEL_ANALYSIS_ELECTRICITY_KEY', 'your-electricity-api-key');
 
-- WordPress 5.0 or higher
-- PHP 7.2 or higher
-- HTTPS enabled
-- Google Maps API key with Solar API access enabled
-- Modern browser with JavaScript enabled
+// Monday.com Integration
+define('SOLAR_PANEL_ANALYSIS_MONDAY_CLIENT_ID', 'your-monday-client-id');
+define('SOLAR_PANEL_ANALYSIS_MONDAY_CLIENT_SECRET', 'your-monday-client-secret');
+define('SOLAR_PANEL_ANALYSIS_MONDAY_SIGNING_SECRET', 'your-monday-signing-secret');
+define('SOLAR_PANEL_ANALYSIS_MONDAY_APP_ID', 'your-monday-app-id');
+define('SOLAR_PANEL_ANALYSIS_MONDAY_BOARD_ID', 'your-monday-board-id');
+```
 
-## Development
+Alternatively, you can configure these values in the WordPress admin panel under Settings > Solar Panel Analysis.
 
-To work on the React application:
+### Installation & Updates
 
-1. Clone the repository
-2. Install dependencies: `npm install`
-3. Create `.env` file with your Google Maps API key
-4. Start development server: `npm run dev`
-5. Build for production: `npm run build`
+#### New Installation
+1. Install and activate the plugin
+2. Configure your API keys either in wp-config.php or through the settings page
+3. Add the shortcode `[solar_panel_analysis]` to any page or post where you want the solar analysis tool to appear
 
-## Support
+#### Updating Existing Installation
+You can safely update the plugin without losing your API keys or settings:
+1. If your API keys are in wp-config.php, they will be preserved
+2. If your API keys are in WordPress settings, they will be preserved
+3. Simply replace the plugin files with the new version
+4. No need to deactivate or uninstall the plugin
 
-For support, please create an issue in the GitHub repository.
+Note: It's recommended to backup your wp-config.php file if you store your API keys there before updating.
 
-## License
+### Security Features
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+- API keys and credentials can be stored securely in wp-config.php
+- Sensitive credentials are stored as password fields in the WordPress admin
+- All API requests are made server-side through WordPress
+- Implements proper nonce verification for AJAX requests
+- Sets security headers for iframe integration
+- Sanitizes and validates all inputs and outputs
+
+### Required APIs
+
+1. **Google Maps API**
+   - Enable Maps JavaScript API
+   - Enable Solar API
+   - Create API key with appropriate restrictions
+   - Example key format: AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+2. **Electricity Rates API**
+   - Sign up at https://api.electricityrates.eu
+   - Generate API key
+   - Example key format: XXXX|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+3. **Monday.com Integration**
+   - Create a Monday.com account
+   - Create a new app in the Monday.com marketplace
+   - Configure OAuth credentials
+   - Create a board for solar analysis results
+   - Example credentials format:
+     * Client ID: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+     * Client Secret: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+     * Signing Secret: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+     * App ID: XXXXXXXXXX
+     * Board ID: XXXXXXXXXX
+
+### Support
+
+For support or feature requests, please open an issue in the plugin repository.

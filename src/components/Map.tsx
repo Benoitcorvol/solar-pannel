@@ -1,14 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Coordinates, BuildingInsights } from '../types/solar';
 import * as turf from '@turf/turf';
-import mapboxgl, { MapMouseEvent } from 'mapbox-gl';
+import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { getLatestElectricityPrice } from '../services/electricityApi';
 
 // Mapbox token (using public token)
 mapboxgl.accessToken = 'pk.eyJ1IjoiYmVub2l0Y29ydm9sIiwiYSI6ImNtNWMwNGxuZjA0MHoya3F5OGN2NnFlcG8ifQ.LTxme4ZLHUo-HBhZVMuyVg';
 
-// Interface for temporary drawing elements
 // Helper functions to safely set map
 const setMarkerMap = (marker: google.maps.marker.AdvancedMarkerElement | null, map: google.maps.Map | null) => {
   if (marker) {
@@ -21,12 +20,6 @@ const setPolylineMap = (polyline: google.maps.Polyline | google.maps.Polygon | n
     polyline.setMap(map);
   }
 };
-
-interface TempDrawingElements {
-  line?: google.maps.Polyline | null;
-  marker?: google.maps.marker.AdvancedMarkerElement | null;
-  measurementLabel?: google.maps.marker.AdvancedMarkerElement | null;
-}
 
 interface BuildingData {
   roofArea: number;
@@ -60,7 +53,6 @@ interface MapProps {
   }) => void;
 }
 
-const STORAGE_KEY = 'solarAnalysis';
 
 const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate, onTechnicalInfoUpdate }) => {
   const mapRef = useRef<HTMLDivElement>(null);
@@ -72,19 +64,17 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
   const [activeView, setActiveView] = useState<'solar' | 'shading' | 'drawing' | '3d'>('solar');
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [measurementMode, setMeasurementMode] = useState(false);
-  const [customArea, setCustomArea] = useState<number | null>(null);
-  const [currentDistance, setCurrentDistance] = useState<number | null>(null);
-  const [totalPerimeter, setTotalPerimeter] = useState<number | null>(null);
-  const [roofPitch, setRoofPitch] = useState<number | null>(null);
+  const [, setCustomArea] = useState<number | null>(null);
+  const [, setCurrentDistance] = useState<number | null>(null);
+  const [, setTotalPerimeter] = useState<number | null>(null);
+  const [, setRoofPitch] = useState<number | null>(null);
   
   // Drawing state
   const drawnPointsRef = useRef<google.maps.LatLng[]>([]);
   const drawingHistoryRef = useRef<google.maps.LatLng[][]>([]);
   const currentHistoryIndexRef = useRef<number>(-1);
   const polygonRef = useRef<google.maps.Polygon | null>(null);
-  const firstPointMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
   const vertexMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
-  const tempDrawingElements = useRef<TempDrawingElements>({});
   
   // UI state
   const [canUndo, setCanUndo] = useState(false);
@@ -112,119 +102,90 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
     polygon: google.maps.Polygon | null;
   }[]>([]);
 
-  // Add state for hover info
-  const [hoveredZoneInfo, setHoveredZoneInfo] = useState<{
-    area: number;
-    pitch: number;
-    energy: number;
-    power: number;
-    position: google.maps.LatLng;
-  } | null>(null);
-
-  // Add state for technical info
-  const [technicalInfo, setTechnicalInfo] = useState<{
-    area: number;
-    usableArea: number;
-    numberOfPanels: number;
-    peakPower: number;
-    estimatedEnergy: number;
-    avgPitch: number;
-    reventeInfo: {
-      revenus: number;
-      revenusNets: number;
-      roi: number;
-    };
-    autoconsoInfo: {
-      revenus: number;
-      revenusNets: number;
-      roi: number;
-    };
-    installationCost: number;
-    maintenanceCost: number;
-  } | null>(null);
-
-  // Add hover info component
-  const HoverInfo = ({ info }: { info: NonNullable<typeof hoveredZoneInfo> }) => (
-    <div 
-      className="absolute bg-white p-2 rounded-lg shadow-lg z-50"
-      style={{ 
-        left: googleMapRef.current?.getProjection()?.fromLatLngToPoint(info.position)?.x || 0,
-        top: googleMapRef.current?.getProjection()?.fromLatLngToPoint(info.position)?.y || 0
-      }}
-    >
-      <div className="text-sm">
-        <p>Surface: {info.area.toFixed(1)} m²</p>
-        <p>Inclinaison: {info.pitch.toFixed(1)}°</p>
-        <p>Production: {info.energy.toFixed(0)} kWh/an</p>
-        <p>Puissance: {info.power.toFixed(1)} kWc</p>
-      </div>
-    </div>
-  );
 
   const calculateZoneMetrics = (area: number, pitch: number) => {
-    const solarPotential = buildingData?.buildingInsights?.solarPotential;
-    if (!solarPotential) {
-      console.log('No solar data available');
+    try {
+      const solarPotential = buildingData?.buildingInsights?.solarPotential;
+      if (!solarPotential || !solarPotential.roofSegmentStats || solarPotential.roofSegmentStats.length === 0) {
+        console.log('No valid solar data available');
+        return {
+          usableArea: 0,
+          numberOfPanels: 0,
+          peakPower: 0,
+          estimatedEnergy: 0,
+          efficiencyFactor: 0.85 // Default efficiency factor
+        };
+      }
+
+      console.log('Solar data available:', solarPotential);
+
+      // Panel parameters
+      const panelArea = 1.7 * 1.0; // m² per panel
+      const panelPower = 400; // Watts per panel
+      const utilizationRate = 0.9; // 90% area utilization
+
+      // Calculate usable area with safety check
+      const usableArea = Math.max(0, area * utilizationRate);
+      console.log('Usable area:', usableArea.toFixed(1), 'm²');
+
+      // Calculate number of panels with safety check
+      const numberOfPanels = Math.max(0, Math.floor(usableArea / panelArea));
+      console.log('Number of panels:', numberOfPanels);
+
+      // Calculate peak power with safety check
+      const peakPower = Math.max(0, (numberOfPanels * panelPower) / 1000); // kWc
+      console.log('Peak power:', peakPower.toFixed(1), 'kWc');
+
+      // Find matching roof segment with safety checks
+      const matchingSegment = solarPotential.roofSegmentStats.find(
+        s => s && typeof s.pitchDegrees === 'number' && Math.abs(s.pitchDegrees - pitch) < 5
+      );
+      console.log('Matching segment:', matchingSegment);
+
+      // Find optimal segment with safety checks
+      const optimalSegment = solarPotential.roofSegmentStats.reduce(
+        (best, current) => {
+          if (!current?.stats?.sunshineQuantiles || !best?.stats?.sunshineQuantiles) return best;
+          return (current.stats.sunshineQuantiles[8] || 0) > (best.stats.sunshineQuantiles[8] || 0) ? current : best;
+        },
+        solarPotential.roofSegmentStats[0]
+      );
+      console.log('Optimal segment:', optimalSegment);
+
+      // Calculate efficiency factor with safety checks
+      let efficiencyFactor = 0.85; // Default value
+      if (matchingSegment?.stats?.sunshineQuantiles && optimalSegment?.stats?.sunshineQuantiles) {
+        const matchingSunshine = matchingSegment.stats.sunshineQuantiles[8] || 0;
+        const optimalSunshine = optimalSegment.stats.sunshineQuantiles[8] || 0;
+        if (optimalSunshine > 0) {
+          efficiencyFactor = matchingSunshine / optimalSunshine;
+        }
+      }
+      console.log('Efficiency factor:', efficiencyFactor.toFixed(2));
+
+      // Calculate annual energy production with safety checks
+      const maxEnergy = Math.max(0, (solarPotential.maxSunshineHoursPerYear || 1000) * peakPower);
+      const estimatedEnergy = Math.max(0, maxEnergy * efficiencyFactor);
+      console.log('Max energy:', maxEnergy.toFixed(0), 'kWh/year');
+      console.log('Estimated energy:', estimatedEnergy.toFixed(0), 'kWh/year');
+
+      return {
+        usableArea,
+        numberOfPanels,
+        peakPower,
+        estimatedEnergy,
+        efficiencyFactor
+      };
+    } catch (error) {
+      console.error('Error in calculateZoneMetrics:', error);
       return {
         usableArea: 0,
         numberOfPanels: 0,
         peakPower: 0,
         estimatedEnergy: 0,
-        efficiencyFactor: 0
+        efficiencyFactor: 0.85
       };
     }
-
-    console.log('Solar data available:', solarPotential);
-
-    // Panel parameters
-    const panelArea = 1.7 * 1.0; // m² per panel
-    const panelPower = 400; // Watts per panel
-    const utilizationRate = 0.9; // 90% area utilization
-
-    // Calculate usable area
-    const usableArea = area * utilizationRate;
-    console.log('Usable area:', usableArea.toFixed(1), 'm²');
-
-    // Calculate number of panels
-    const numberOfPanels = Math.floor(usableArea / panelArea);
-    console.log('Number of panels:', numberOfPanels);
-
-    // Calculate peak power
-    const peakPower = (numberOfPanels * panelPower) / 1000; // kWc
-    console.log('Peak power:', peakPower.toFixed(1), 'kWc');
-
-    // Find matching roof segment
-    const matchingSegment = solarPotential.roofSegmentStats.find(
-      s => Math.abs(s.pitchDegrees - pitch) < 5
-    );
-    console.log('Matching segment:', matchingSegment);
-
-    // Find optimal segment
-    const optimalSegment = solarPotential.roofSegmentStats.reduce(
-      (best, current) => current.stats.sunshineQuantiles[8] > best.stats.sunshineQuantiles[8] ? current : best,
-      solarPotential.roofSegmentStats[0]
-    );
-    console.log('Optimal segment:', optimalSegment);
-
-    // Calculate efficiency factor based on orientation and pitch
-    const efficiencyFactor = matchingSegment 
-      ? matchingSegment.stats.sunshineQuantiles[8] / optimalSegment.stats.sunshineQuantiles[8]
-      : 0.85;
-    console.log('Efficiency factor:', efficiencyFactor.toFixed(2));
-
-    // Calculate annual energy production using real solar data
-    const maxEnergy = solarPotential.maxSunshineHoursPerYear * peakPower;
-    const estimatedEnergy = maxEnergy * efficiencyFactor;
-    console.log('Max energy:', maxEnergy.toFixed(0), 'kWh/year');
-    console.log('Estimated energy:', estimatedEnergy.toFixed(0), 'kWh/year');
-
-    return {
-      usableArea,
-      numberOfPanels,
-      peakPower,
-      estimatedEnergy,
-      efficiencyFactor
-    };
   };
 
   const startDrawingHole = () => {
@@ -316,50 +277,6 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
     }
   };
 
-  // Calculate yearly energy production
-  const getYearlyEnergy = () => {
-    const solarPotential = buildingData?.buildingInsights?.solarPotential;
-    if (!solarPotential) return 0;
-
-    // Use maxArrayAnnualEnergyKwh as it's more accurate
-    return solarPotential.maxArrayAnnualEnergyKwh || 0;
-  };
-
-  // Calculate power and financial metrics
-  const calculateMetrics = (area: number) => {
-    const panelArea = 1.7 * 1.0; // m² par panneau
-    const panelPower = 400; // Watts par panneau
-    const utilizationRate = 0.9; // 90% d'utilisation de la surface
-    const pricePerKwh = 0.34223; // €/kWh
-
-    const usableArea = area * utilizationRate;
-    const numberOfPanels = Math.floor(usableArea / panelArea);
-    const peakPower = (numberOfPanels * panelPower) / 1000; // kWc
-    
-    return {
-      peakPower,
-      numberOfPanels,
-      usableArea
-    };
-  };
-
-  // Calculate average pitch and azimuth
-  const getAverageRoofStats = () => {
-    const segments = buildingData?.buildingInsights?.solarPotential?.roofSegmentStats;
-    if (!segments || segments.length === 0) return null;
-
-    const avgPitch = segments.reduce((sum, seg) => sum + seg.pitchDegrees, 0) / segments.length;
-    const avgAzimuth = segments.reduce((sum, seg) => sum + seg.azimuthDegrees, 0) / segments.length;
-    const totalArea = segments.reduce((sum, seg) => sum + seg.stats.areaMeters2, 0);
-    const avgSunshine = segments.reduce((sum, seg) => {
-      const segmentAvg = seg.stats.sunshineQuantiles.reduce((a, b) => a + b, 0) / seg.stats.sunshineQuantiles.length;
-      return sum + segmentAvg;
-    }, 0) / segments.length;
-
-    return { avgPitch, avgAzimuth, totalArea, avgSunshine };
-  };
-
-  const roofStats = getAverageRoofStats();
 
   // Initialize Mapbox
   useEffect(() => {
@@ -773,57 +690,6 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
     }
   };
 
-  const updateTechnicalAnalysis = (area: number, pitch: number) => {
-    const metrics = calculateZoneMetrics(area, pitch);
-    const solarPotential = buildingData?.buildingInsights?.solarPotential;
-    
-    if (!solarPotential) return metrics;
-
-    // Calcul du retour sur investissement
-    const installationCostPerKw = 1000; // €/kWc
-    const maintenanceCostPerYear = metrics.peakPower * 20; // €/an
-    const electricityPrice = 0.34223; // €/kWh
-    const annualRevenue = metrics.estimatedEnergy * electricityPrice;
-    const installationCost = metrics.peakPower * installationCostPerKw;
-    const roi = installationCost / annualRevenue;
-
-    // Mise à jour des métriques globales
-    if (onCustomAreaUpdate) {
-      onCustomAreaUpdate(area);
-    }
-
-    // Créer l'objet d'informations techniques
-    const technicalInfo = {
-      area,
-      usableArea: metrics.usableArea,
-      numberOfPanels: metrics.numberOfPanels,
-      peakPower: metrics.peakPower,
-      estimatedEnergy: metrics.estimatedEnergy,
-      avgPitch: pitch,
-      reventeInfo: {
-        revenus: 0,
-        revenusNets: 0,
-        roi: 0
-      },
-      autoconsoInfo: {
-        revenus: 0,
-        revenusNets: 0,
-        roi: 0
-      },
-      installationCost: installationCost,
-      maintenanceCost: maintenanceCostPerYear
-    };
-
-    // Propager les informations vers le composant parent
-    if (onTechnicalInfoUpdate) {
-      onTechnicalInfoUpdate(technicalInfo);
-    }
-
-    // Mettre à jour l'état local
-    setTechnicalInfo(technicalInfo);
-
-    return metrics;
-  };
 
   // Update polygon creation to include hover events
   const createPolygonWithEvents = (options: google.maps.PolygonOptions, zoneInfo: { area: number, pitch: number }) => {
@@ -837,17 +703,12 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
       if (!e.latLng) return;
       
       const metrics = calculateZoneMetrics(zoneInfo.area, zoneInfo.pitch);
-      setHoveredZoneInfo({
+      console.log('Zone metrics:', {
         area: zoneInfo.area,
         pitch: zoneInfo.pitch,
         energy: metrics.estimatedEnergy,
-        power: metrics.peakPower,
-        position: e.latLng
+        power: metrics.peakPower
       });
-    });
-
-    polygon.addListener('mouseout', () => {
-      setHoveredZoneInfo(null);
     });
 
     return polygon;
@@ -1076,14 +937,14 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
           const peakPower = numberOfPanels * 0.4; // 400W per panel
 
           // Calculate energy production
-          const maxEnergy = solarPotential.maxArrayAnnualEnergyKwh;
-          const areaRatio = finalArea / solarPotential.maxArrayAreaMeters2;
-          const sunshineHours = solarPotential.maxSunshineHoursPerYear;
+          const maxEnergy = solarPotential.maxArrayAnnualEnergyKwh || 0;
+          const areaRatio = finalArea / (solarPotential.maxArrayAreaMeters2 || 1);
+          const sunshineHours = solarPotential.maxSunshineHoursPerYear || 1000;
           const efficiencyFactor = 0.97;
 
           const estimatedEnergy = Math.min(
             maxEnergy * areaRatio,
-            peakPower * sunshineHours * efficiencyFactor
+            peakPower * sunshineHours * efficiencyFactor || 0
           );
 
           // Update interface
@@ -1264,7 +1125,7 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
 
       // Calculate energy production
       const baseYearlyProduction = 1350; // kWh/kWc/year in optimal conditions
-      let estimatedEnergy;
+      let estimatedEnergy = 0;
 
       if (isUsingApiArea && solarPotential.maxArrayAnnualEnergyKwh) {
         // If using API area, use API energy value adjusted by efficiency
@@ -1273,7 +1134,7 @@ const Map: React.FC<MapProps> = ({ coordinates, buildingData, onCustomAreaUpdate
       } else {
         // Calculate based on area and power
         const energyFromPower = peakPower * baseYearlyProduction * totalEfficiency;
-        const areaRatio = totalArea / solarPotential.maxArrayAreaMeters2;
+        const areaRatio = totalArea / (solarPotential.maxArrayAreaMeters2 || 1); // Prevent division by zero
         const energyFromArea = (solarPotential.maxArrayAnnualEnergyKwh || 0) * areaRatio * totalEfficiency;
         
         // Take the most conservative estimate

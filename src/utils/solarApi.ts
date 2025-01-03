@@ -2,22 +2,22 @@ import { SolarApiResponse } from '../types/solar';
 import { getCountryFromAddress } from './googleMaps';
 import { isWordPressEnv, getApiUrl, config } from './config';
 
-const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-
 export async function getSolarPotential(address: string): Promise<SolarApiResponse> {
   try {
     console.log('Analyzing solar potential for address:', address);
 
-    // Get country code using our existing geocoding function
+    // Get country code using our geocoding function
+    console.log('Getting country code for address...');
     const countryCode = await getCountryFromAddress(address);
+    
     if (!countryCode) {
-      throw new Error('Unable to geocode address. Please check the address and try again.');
+      console.error('Failed to get country code for address:', address);
+      throw new Error('Unable to determine country from address. Please check the address and try again.');
     }
-    console.log('Geocoding successful:', countryCode);
+    console.log('Geocoding successful, country code:', countryCode);
 
     // Fetch solar data
     console.log('Fetching solar data...');
-    
     if (isWordPressEnv) {
       // Use WordPress REST API
       const response = await fetch(getApiUrl(`solar-data?country=${countryCode}`), {
@@ -44,7 +44,7 @@ export async function getSolarPotential(address: string): Promise<SolarApiRespon
       const { lat, lng } = geocodeResponse.results[0].geometry.location.toJSON();
 
       // Get building insights
-      const buildingInsightsUrl = `buildingInsights:findClosest?location.latitude=${lat}&location.longitude=${lng}&key=${API_KEY}`;
+      const buildingInsightsUrl = `buildingInsights:findClosest?location.latitude=${lat}&location.longitude=${lng}&key=${config.apis.google.solar}`;
       const buildingResponse = await fetch(getApiUrl(buildingInsightsUrl));
       
       if (!buildingResponse.ok) {
@@ -54,7 +54,7 @@ export async function getSolarPotential(address: string): Promise<SolarApiRespon
       const buildingInsights = await buildingResponse.json();
 
       // Get data layers
-      const dataLayersUrl = `dataLayers:get?location.latitude=${lat}&location.longitude=${lng}&radiusMeters=100&view=FULL_LAYERS&key=${API_KEY}`;
+      const dataLayersUrl = `dataLayers:get?location.latitude=${lat}&location.longitude=${lng}&radiusMeters=100&view=FULL_LAYERS&key=${config.apis.google.solar}`;
       const layersResponse = await fetch(getApiUrl(dataLayersUrl));
 
       if (!layersResponse.ok) {
